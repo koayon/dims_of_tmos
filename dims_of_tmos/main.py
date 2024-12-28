@@ -3,7 +3,7 @@
 #
 # This notebook includes the toy model training framework used to generate most of the results in the "Toy Models of Superposition" paper.
 #
-# The main useful improvement over a basic PyTorch tiny autoencoder is the ability to batch train many models with varying sparsity at once, which is much more efficient than training them one at a time.
+# The main useful improvement over a basic Pyt tiny autoencoder is the ability to batch train many models with varying sparsity at once, which is much more efficient than training them one at a time.
 #
 # This notebook is designed to run in Google Colab's Python 3.7 environment.
 
@@ -11,214 +11,23 @@
 # !pip install einops
 
 import math
-import time
-from dataclasses import dataclass, replace
 from typing import Optional
 
-import einops
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-
-import torch
 import torch as t
 from einops import einsum
 from plotly.subplots import make_subplots
 from sklearn.decomposition import PCA
-from torch import nn
-from torch.nn import functional as F
-from tqdm.notebook import trange
 
-if torch.cuda.is_available():
-    DEVICE = "cuda"
-else:
-    DEVICE = "cpu"
-
+from dims_of_tmos import DEVICE
+from dims_of_tmos.model import Config, Model
+from dims_of_tmos.train import optimize
 
 # %%
-@dataclass
-class Config:
-    n_features: int
-    n_hidden: int
-
-    # We optimize n_instances models in a single training loop
-    # to let us sweep over sparsity or importance curves
-    # efficiently.
-
-    # We could potentially use torch.vmap instead.
-    n_instances: int
-
-
-class Model(nn.Module):
-    def __init__(
-        self,
-        config: Config,
-        feature_probability: Optional[torch.Tensor] = None,
-        importance: Optional[torch.Tensor] = None,
-        device="cuda",
-    ):
-        super().__init__()
-        self.config = config
-        self.W = nn.Parameter(
-            torch.empty(
-                (config.n_instances, config.n_features, config.n_hidden), device=device
-            )
-        )
-        nn.init.xavier_normal_(self.W)
-        self.b_final = nn.Parameter(
-            torch.zeros((config.n_instances, config.n_features), device=device)
-        )
-
-        if feature_probability is None:
-            feature_probability = torch.ones(())
-        self.feature_probability = feature_probability.to(device)
-        if importance is None:
-            importance = torch.ones(())
-        self.importance = importance.to(device)
-
-    def forward(self, features):
-        # features: [..., instance, n_features]
-        # W: [instance, n_features, n_hidden]
-        hidden = torch.einsum("...if,ifh->...ih", features, self.W)
-        out = torch.einsum("...ih,ifh->...if", hidden, self.W)
-        out = out + self.b_final
-        out = F.relu(out)
-        return out
-
-    def generate_batch(self, n_batch):
-        feat = torch.rand(
-            (n_batch, self.config.n_instances, self.config.n_features), device=self.W.device
-        )
-        batch = torch.where(
-            torch.rand(
-                (n_batch, self.config.n_instances, self.config.n_features),
-                device=self.W.device,
-            )
-            <= self.feature_probability,
-            feat,
-            torch.zeros((), device=self.W.device),
-        )
-        return batch
-
-
-# %%
-def linear_lr(step, steps):
-    return 1 - (step / steps)
-
-
-def constant_lr(*_):
-    return 1.0
-
-
-def cosine_decay_lr(step, steps):
-    return np.cos(0.5 * np.pi * step / (steps - 1))
-
-
-def optimize(
-    model: Model,
-    render=False,
-    n_batch=1024,
-    steps=10_000,
-    print_freq=100,
-    lr=1e-3,
-    lr_scale=constant_lr,
-    hooks=[],
-):
-    cfg = model.config
-
-    opt = torch.optim.AdamW(list(model.parameters()), lr=lr)
-
-    start = time.time()
-    with trange(steps) as t:
-        for step in t:
-            step_lr = lr * lr_scale(step, steps)
-            for group in opt.param_groups:
-                group["lr"] = step_lr
-            opt.zero_grad(set_to_none=True)
-            batch = model.generate_batch(n_batch)
-            out = model(batch)
-            error = model.importance * (batch.abs() - out) ** 2
-            loss = einops.reduce(error, "b i f -> i", "mean").sum()
-            loss.backward()
-            opt.step()
-
-            if hooks:
-                hook_data = dict(
-                    model=model, step=step, opt=opt, error=error, loss=loss, lr=step_lr
-                )
-                for h in hooks:
-                    h(hook_data)
-            if step % print_freq == 0 or (step + 1 == steps):
-                t.set_postfix(
-                    loss=loss.item() / cfg.n_instances,
-                    lr=step_lr,
-                )
-
-# %% [markdown]
-# ## Introduction Figure
-#
-# Reproducing a version of the figure from the introduction, although with a slightly different version of the code.
-
-# %%
-config = Config(
-    n_features=5,
-    n_hidden=2,
-    n_instances=10,
-)
-
-model = Model(
-    config=config,
-    device=DEVICE,
-    # Exponential feature importance curve from 1 to 1/100
-    importance=(0.9 ** torch.arange(config.n_features))[None, :],
-    # Sweep feature frequency across the instances from 1 (fully dense) to 1/20
-    feature_probability=(20 ** -torch.linspace(0, 1, config.n_instances))[:, None],
-)
-
-# %%
-optimize(model)
-
-
-# %%
-def plot_intro_diagram(model: Model):
-    from matplotlib import collections as mc
-    from matplotlib import colors as mcolors
-
-    cfg = model.config
-    WA = model.W.detach()
-    N = len(WA[:, 0])
-    sel = range(config.n_instances)  # can be used to highlight specific sparsity levels
-    plt.rcParams["axes.prop_cycle"] = plt.cycler(
-        "color", plt.cm.viridis(model.importance[0].cpu().numpy())
-    )
-    plt.rcParams["figure.dpi"] = 200
-    fig, axs = plt.subplots(1, len(sel), figsize=(2 * len(sel), 2))
-    for i, ax in zip(sel, axs):
-        W = WA[i].cpu().detach().numpy()
-        colors = [
-            mcolors.to_rgba(c) for c in plt.rcParams["axes.prop_cycle"].by_key()["color"]
-        ]
-        ax.scatter(W[:, 0], W[:, 1], c=colors[0 : len(W[:, 0])])
-        ax.set_aspect("equal")
-        ax.add_collection(
-            mc.LineCollection(np.stack((np.zeros_like(W), W), axis=1), colors=colors)
-        )
-
-        z = 1.5
-        ax.set_facecolor("#FCFBF8")
-        ax.set_xlim((-z, z))
-        ax.set_ylim((-z, z))
-        ax.tick_params(left=True, right=False, labelleft=False, labelbottom=False, bottom=True)
-        for spine in ["top", "right"]:
-            ax.spines[spine].set_visible(False)
-        for spine in ["bottom", "left"]:
-            ax.spines[spine].set_position("center")
-    plt.show()
-
-
-plot_intro_diagram(model)
 
 # %% [markdown]
 # # Visualizing features across varying sparsity
@@ -234,9 +43,9 @@ model = Model(
     config=config,
     device=DEVICE,
     # Exponential feature importance curve from 1 to 1/100
-    importance=(100 ** -torch.linspace(0, 1, config.n_features))[None, :],
+    importance=(100 ** -t.linspace(0, 1, config.n_features))[None, :],
     # Sweep feature frequency across the instances from 1 (fully dense) to 1/20
-    feature_probability=(20 ** -torch.linspace(0, 1, config.n_instances))[:, None],
+    feature_probability=(20 ** -t.linspace(0, 1, config.n_instances))[:, None],
 )
 
 # %%
@@ -244,23 +53,23 @@ optimize(model)
 
 
 # %%
-def render_features(model, which=np.s_[:]):
+def render_features(model: Model, which=np.s_[:]) -> go.Figure:
     cfg = model.config
     W = model.W.detach()
-    W_norm = W / (1e-5 + torch.linalg.norm(W, 2, dim=-1, keepdim=True))
+    W_norm = W / (1e-5 + t.linalg.norm(W, 2, dim=-1, keepdim=True))
 
-    interference = torch.einsum("ifh,igh->ifg", W_norm, W)
-    interference[:, torch.arange(cfg.n_features), torch.arange(cfg.n_features)] = 0
+    interference = t.einsum("ifh,igh->ifg", W_norm, W)
+    interference[:, t.arange(cfg.n_features), t.arange(cfg.n_features)] = 0
 
-    polysemanticity = torch.linalg.norm(interference, dim=-1).cpu()
+    polysemanticity = t.linalg.norm(interference, dim=-1).cpu()
     net_interference = (interference**2 * model.feature_probability[:, None, :]).sum(-1).cpu()
-    norms = torch.linalg.norm(W, 2, dim=-1).cpu()
+    norms = t.linalg.norm(W, 2, dim=-1).cpu()
 
-    WtW = torch.einsum("sih,soh->sio", W, W).cpu()
+    WtW = t.einsum("sih,soh->sio", W, W).cpu()
 
     # width = weights[0].cpu()
-    # x = torch.cumsum(width+0.1, 0) - width[0]
-    x = torch.arange(cfg.n_features)
+    # x = t.cumsum(width+0.1, 0) - width[0]
+    x = t.arange(cfg.n_features)
     width = 0.9
 
     which_instances = np.arange(cfg.n_instances)[which]
@@ -335,9 +144,7 @@ model = Model(
     device=DEVICE,
     # For this experiment, use constant importance.
     # Sweep feature frequency across the instances from 1 (fully dense) to 1/20
-    feature_probability=(20 ** -torch.linspace(left_val, right_val, config.n_instances))[
-        :, None
-    ],
+    feature_probability=(20 ** -t.linspace(left_val, right_val, config.n_instances))[:, None],
 )
 
 # %%
@@ -349,14 +156,14 @@ optimize(model, steps=2_000, n_batch=2**13)  # ideally steps = 50k, batch size =
 # right_val = math.log(4 / 5)
 
 
-# feature_probability = (20 ** -torch.linspace(left_val, right_val, config.n_instances))[:, None]
+# feature_probability = (20 ** -t.linspace(left_val, right_val, config.n_instances))[:, None]
 # feature_probability
 # 1 / (1 - feature_probability)
 
 # %%
 fig = px.line(
     x=1 / model.feature_probability[:, 0].cpu(),
-    y=(model.config.n_hidden / (torch.linalg.matrix_norm(model.W.detach(), "fro") ** 2)).cpu(),
+    y=(model.config.n_hidden / (t.linalg.matrix_norm(model.W.detach(), "fro") ** 2)).cpu(),
     log_x=True,
     markers=True,
 )
@@ -367,10 +174,10 @@ fig.update_yaxes(title=f"m/(||W||_F)^2")
 
 
 # %%
-@torch.no_grad()
+@t.no_grad()
 def compute_dimensionality(W_SFN: t.Tensor) -> t.Tensor:
-    norms_SF = torch.linalg.norm(W_SFN, 2, dim=-1)
-    W_unit_SFN = W_SFN / torch.clamp(norms_SF[:, :, None], 1e-6, float("inf"))
+    norms_SF = t.linalg.norm(W_SFN, 2, dim=-1)
+    W_unit_SFN = W_SFN / t.clamp(norms_SF[:, :, None], 1e-6, float("inf"))
 
     interferences_SF = (
         einsum(
@@ -507,6 +314,7 @@ fig.show()
 # %%
 fig.write_html(base_dir + "separated_pca_matrix.html")
 
+
 # %%
 def reorder_corr_matrix(corr_matrix: t.Tensor):
     # Get diagonal values
@@ -553,4 +361,5 @@ pca_matrix2 = pca2.components_
 fig3 = px.imshow(pca_matrix2)
 fig3.show()
 
+# %%
 # %%
