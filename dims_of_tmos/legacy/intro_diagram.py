@@ -1,4 +1,5 @@
-# %%
+# ## Introduction Figure from TMOS paper
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch as t
@@ -44,11 +45,6 @@ def plot_intro_diagram(model: Model):
     plt.show()
 
 
-# %% [markdown]
-# ## Introduction Figure
-#
-# Reproducing a version of the figure from the introduction, although with a slightly different version of the code.
-
 if __name__ == "__main__":
     config = Config(
         n_features=5,
@@ -65,7 +61,6 @@ if __name__ == "__main__":
         feature_probability=(20 ** -t.linspace(0, 1, config.n_instances))[:, None],
     )
 
-    # %%
     optimize(model)
 
     plot_intro_diagram(model)
