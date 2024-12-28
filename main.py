@@ -22,14 +22,19 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-# %%
 import torch
 import torch as t
 from einops import einsum
 from plotly.subplots import make_subplots
+from sklearn.decomposition import PCA
 from torch import nn
 from torch.nn import functional as F
 from tqdm.notebook import trange
+
+if torch.cuda.is_available():
+    DEVICE = "cuda"
+else:
+    DEVICE = "cpu"
 
 
 # %%
@@ -150,13 +155,6 @@ def optimize(
                     loss=loss.item() / cfg.n_instances,
                     lr=step_lr,
                 )
-
-
-# %%
-if torch.cuda.is_available():
-    DEVICE = "cuda"
-else:
-    DEVICE = "cpu"
 
 # %% [markdown]
 # ## Introduction Figure
@@ -343,7 +341,8 @@ model = Model(
 )
 
 # %%
-optimize(model, steps=50_000, n_batch=2**12)
+optimize(model, steps=2_000, n_batch=2**13)  # ideally steps = 50k, batch size = 2^12
+# optimize(model, steps=50_000, n_batch=2**12)
 
 # %%
 # left_val = math.log(3 / 4)
@@ -362,7 +361,7 @@ fig = px.line(
     markers=True,
 )
 fig.update_xaxes(title="1/(1-S)")
-fig.update_yaxes(title=f"m/||W||_F^2")
+fig.update_yaxes(title=f"m/(||W||_F)^2")
 
 # %%
 
@@ -387,10 +386,6 @@ def compute_dimensionality(W_SFN: t.Tensor) -> t.Tensor:
 
 
 # %%
-dim_fracs_SF = compute_dimensionality(model.W)
-
-
-# %%
 def median_dimensionality(dim_fracs_SF: t.Tensor) -> t.Tensor:
     median_dim_frac: list[t.Tensor] = []
     for features in dim_fracs_SF:
@@ -407,6 +402,8 @@ def median_dimensionality(dim_fracs_SF: t.Tensor) -> t.Tensor:
 
 
 # %%
+dim_fracs_SF = compute_dimensionality(model.W)
+
 median_dim_fracs_S = median_dimensionality(dim_fracs_SF)
 
 # %%
@@ -444,18 +441,18 @@ for i in range(len(W_SFN)):
         )
     )
 
-    fig.add_trace(
-        go.Scatter(
-            x=1 / density[i] * np.ones(N) + dx * np.random.uniform(-0.1, 0.1, N),
-            y=[median_dim_fracs_S[i].item()],
-            marker=dict(
-                color="blue",
-                size=10,
-            ),
-            mode="markers",
-            marker_symbol="diamond-x",
-        )
-    )
+    # fig.add_trace(
+    #     go.Scatter(
+    #         x=1 / density[i] * np.ones(N) + dx * np.random.uniform(-0.1, 0.1, N),
+    #         y=[median_dim_fracs_S[i].item()],
+    #         marker=dict(
+    #             color="blue",
+    #             size=10,
+    #         ),
+    #         mode="markers",
+    #         marker_symbol="diamond-x",
+    #     )
+    # )
 
 fig.update_xaxes(
     type="log",
@@ -472,17 +469,19 @@ fig.write_html(base_dir + "constrained_dimensionality_clusters1.html")
 
 # %%
 model.W.shape
-# 46, 48, 50 have the 4/9 ratio
+GOOD_IDX = 39
+# check for the traces in the "effective dim vs sparsity" graph above; use the indices that after you divide the trace by 2
+
+W_SFN[GOOD_IDX]
+# can put whichever index here in the brackets?
+# the index here might not actually be the weight vectors for model #idx...
 
 # %%
-W_SFN[46]
 
-# %%
-from sklearn.decomposition import PCA
 
 # %%
 pca = PCA()
-pca.fit(W_SFN[30].T.cpu().numpy())
+pca.fit(W_SFN[GOOD_IDX].T.cpu().numpy())
 
 # %%
 pca_matrix_NF = pca.components_
@@ -509,11 +508,27 @@ fig.show()
 fig.write_html(base_dir + "separated_pca_matrix.html")
 
 # %%
-W_30_FN = W_SFN[30].detach()
-nfm_FF = W_30_FN @ W_30_FN.T
-undiag_nfm_FF = nfm_FF - t.diag(t.diag(nfm_FF))
+def reorder_corr_matrix(corr_matrix: t.Tensor):
+    # Get diagonal values
+    diag_values = t.diagonal(corr_matrix)
+
+    # Get indices that would sort the diagonal values in descending order
+    sorted_indices = t.argsort(diag_values, descending=True)
+
+    # Reorder both rows and columns using these indices
+    reordered_matrix = corr_matrix[sorted_indices][:, sorted_indices]
+
+    return reordered_matrix
+
+
+W_GOOD_FN = W_SFN[GOOD_IDX].detach()
+nfm_FF = W_GOOD_FN @ W_GOOD_FN.T
+undiag_nfm_FF = nfm_FF  # - t.diag(t.diag(nfm_FF))
 print(t.max(t.abs(undiag_nfm_FF)))
-px.imshow(undiag_nfm_FF.cpu().numpy())
+diagf = nfm_FF.diag()
+undiag_nfm_FF = reorder_corr_matrix(undiag_nfm_FF)
+px.imshow(undiag_nfm_FF.cpu().numpy(), color_continuous_scale=px.colors.diverging.RdBu)
+
 
 # %%
 threshold = 0.05
