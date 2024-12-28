@@ -1,7 +1,4 @@
 # %% [markdown]
-# <a href="https://colab.research.google.com/github/Lorxus/dims_of_tmos/blob/main/toy_models.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
-
-# %% [markdown]
 # # Toy Models of Superposition
 #
 # This notebook includes the toy model training framework used to generate most of the results in the "Toy Models of Superposition" paper.
@@ -13,7 +10,6 @@
 # %%
 # !pip install einops
 
-# %%
 import math
 import time
 from dataclasses import dataclass, replace
@@ -25,6 +21,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+
 import torch
 import torch as t
 from einops import einsum
@@ -158,7 +155,6 @@ def optimize(
                     loss=loss.item() / cfg.n_instances,
                     lr=step_lr,
                 )
-
 
 # %% [markdown]
 # ## Introduction Figure
@@ -346,6 +342,7 @@ model = Model(
 
 # %%
 optimize(model, steps=2_000, n_batch=2**13)  # ideally steps = 50k, batch size = 2^12
+# optimize(model, steps=50_000, n_batch=2**12)
 
 # %%
 # left_val = math.log(3 / 4)
@@ -388,6 +385,7 @@ def compute_dimensionality(W_SFN: t.Tensor) -> t.Tensor:
     return dim_fracs_SF.cpu()
 
 
+# %%
 def median_dimensionality(dim_fracs_SF: t.Tensor) -> t.Tensor:
     median_dim_frac: list[t.Tensor] = []
     for features in dim_fracs_SF:
@@ -405,6 +403,7 @@ def median_dimensionality(dim_fracs_SF: t.Tensor) -> t.Tensor:
 
 # %%
 dim_fracs_SF = compute_dimensionality(model.W)
+
 median_dim_fracs_S = median_dimensionality(dim_fracs_SF)
 
 # %%
@@ -508,7 +507,6 @@ fig.show()
 # %%
 fig.write_html(base_dir + "separated_pca_matrix.html")
 
-
 # %%
 def reorder_corr_matrix(corr_matrix: t.Tensor):
     # Get diagonal values
@@ -530,6 +528,7 @@ print(t.max(t.abs(undiag_nfm_FF)))
 diagf = nfm_FF.diag()
 undiag_nfm_FF = reorder_corr_matrix(undiag_nfm_FF)
 px.imshow(undiag_nfm_FF.cpu().numpy(), color_continuous_scale=px.colors.diverging.RdBu)
+
 
 # %%
 threshold = 0.05
