@@ -7,7 +7,7 @@ if t.cuda.is_available():
 else:
     DEVICE = "cpu"
 
-base_dir_path = "/mnt/ssd-1/mechinterp/koayon/dims_of_tmos/charts/"
+base_dir_path = "/mnt/ssd-1/mechinterp/koayon/dims_of_tmos/"
 if os.path.exists(base_dir_path):
     BASE_DIR = base_dir_path
 else:
