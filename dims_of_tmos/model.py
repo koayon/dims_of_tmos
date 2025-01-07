@@ -11,15 +11,15 @@ from torch.nn import functional as F
 
 @dataclass
 class Config:
-    n_features: int
-    n_hidden: int
+    num_features: int
+    num_neurons: int
 
     # We optimize n_instances models in a single training loop
     # to let us sweep over sparsity or importance curves
     # efficiently.
 
     # We could potentially use t.vmap instead.
-    n_instances: int
+    num_instances: int
 
     def to_dict(self):
         return asdict(self)
@@ -36,11 +36,13 @@ class Model(nn.Module):
         super().__init__()
         self.config = config
         self.W = nn.Parameter(
-            t.empty((config.n_instances, config.n_features, config.n_hidden), device=device)
+            t.empty(
+                (config.num_instances, config.num_features, config.num_neurons), device=device
+            )
         )
         nn.init.xavier_normal_(self.W)
         self.b_final = nn.Parameter(
-            t.zeros((config.n_instances, config.n_features), device=device)
+            t.zeros((config.num_instances, config.num_features), device=device)
         )
 
         if feature_probability is None:
@@ -65,11 +67,12 @@ class Model(nn.Module):
 
     def generate_batch(self, n_batch: int) -> t.Tensor:
         feat = t.rand(
-            (n_batch, self.config.n_instances, self.config.n_features), device=self.W.device
+            (n_batch, self.config.num_instances, self.config.num_features),
+            device=self.W.device,
         )
         batch = t.where(
             t.rand(
-                (n_batch, self.config.n_instances, self.config.n_features),
+                (n_batch, self.config.num_instances, self.config.num_features),
                 device=self.W.device,
             )
             <= self.feature_probability,

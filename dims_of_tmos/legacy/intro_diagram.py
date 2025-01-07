@@ -16,7 +16,7 @@ def plot_intro_diagram(model: Model):
     config = model.config
     WA = model.W.detach()
     # N = len(WA[:, 0])
-    sel = range(config.n_instances)  # can be used to highlight specific sparsity levels
+    sel = range(config.num_instances)  # can be used to highlight specific sparsity levels
 
     plt.rcParams["axes.prop_cycle"] = plt.cycler(  # type: ignore
         "color", plt.cm.viridis(model.importance[0].cpu().numpy())  # type: ignore
@@ -54,18 +54,18 @@ def plot_intro_diagram(model: Model):
 
 if __name__ == "__main__":
     config = Config(
-        n_features=5,
-        n_hidden=2,
-        n_instances=10,
+        num_features=5,
+        num_neurons=2,
+        num_instances=10,
     )
 
     model = Model(
         config=config,
         device=DEVICE,
         # Exponential feature importance curve from 1 to 1/100
-        importance=(0.9 ** t.arange(config.n_features))[None, :],
+        importance=(0.9 ** t.arange(config.num_features))[None, :],
         # Sweep feature frequency across the instances from 1 (fully dense) to 1/20
-        feature_probability=(20 ** -t.linspace(0, 1, config.n_instances))[:, None],
+        feature_probability=(20 ** -t.linspace(0, 1, config.num_instances))[:, None],
     )
 
     optimize(model)

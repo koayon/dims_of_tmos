@@ -10,25 +10,26 @@ RIGHT_FEATURE_PROB = 11 / 20
 
 def train_feature_geom_models() -> Model:
     config = Config(
-        n_features=400,
-        n_hidden=30,
-        n_instances=100,
+        num_features=num_features,
+        num_neurons=num_neurons,
+        num_instances=num_instances,
     )
 
     model = Model(
         config=config,
         device=DEVICE,
         # For this experiment, use constant importance.
-        # Sweep feature frequency across the instances from 1 (fully dense) to 1/20
+        # Sweep feature frequency across the instances
         feature_probability=(
-            20 ** -t.linspace(LEFT_FEATURE_PROB, RIGHT_FEATURE_PROB, config.n_instances)
+            20 ** -t.linspace(LEFT_FEATURE_PROB, RIGHT_FEATURE_PROB, config.num_instances)
         )[:, None],
     )
 
     model = optimize(
-        model, steps=2_000, n_batch=2**13
-    )  # ideally steps = 50k, batch size = 2^12
-    # optimize(model, steps=50_000, n_batch=2**12)
+        model,
+        steps=train_steps,
+        batch_size=batch_size,
+    )
 
     return model
 

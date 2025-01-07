@@ -16,7 +16,9 @@ from dims_of_tmos.model import Model
 def plot_sparsity_vs_features_per_dim(model: Model) -> go.Figure:
     fig = px.line(
         x=1 / model.feature_probability[:, 0].cpu(),
-        y=(model.config.n_hidden / (t.linalg.matrix_norm(model.W.detach(), "fro") ** 2)).cpu(),
+        y=(
+            model.config.num_neurons / (t.linalg.matrix_norm(model.W.detach(), "fro") ** 2)
+        ).cpu(),
         log_x=True,
         markers=True,
     )

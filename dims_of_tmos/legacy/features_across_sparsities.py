@@ -17,7 +17,7 @@ def render_features(model: Model, which=np.s_[:]) -> go.Figure:
     W_norm = W / (1e-5 + t.linalg.norm(W, 2, dim=-1, keepdim=True))
 
     interference = t.einsum("ifh,igh->ifg", W_norm, W)
-    interference[:, t.arange(cfg.n_features), t.arange(cfg.n_features)] = 0
+    interference[:, t.arange(cfg.num_features), t.arange(cfg.num_features)] = 0
 
     polysemanticity = t.linalg.norm(interference, dim=-1).cpu()
     net_interference = (interference**2 * model.feature_probability[:, None, :]).sum(-1).cpu()
@@ -27,10 +27,10 @@ def render_features(model: Model, which=np.s_[:]) -> go.Figure:
 
     # width = weights[0].cpu()
     # x = t.cumsum(width+0.1, 0) - width[0]
-    x = t.arange(cfg.n_features)
+    x = t.arange(cfg.num_features)
     width = 0.9
 
-    which_instances = np.arange(cfg.n_instances)[which]
+    which_instances = np.arange(cfg.num_instances)[which]
     fig = make_subplots(
         rows=len(which_instances),
         cols=2,
@@ -66,7 +66,7 @@ Weight: %{customdata:0.2f}
         )
 
     fig.add_vline(
-        x=(x[cfg.n_hidden - 1] + x[cfg.n_hidden]) / 2,
+        x=(x[cfg.num_neurons - 1] + x[cfg.num_neurons]) / 2,
         line=dict(width=0.5),
         col=1,  # type: ignore
     )
@@ -82,18 +82,18 @@ Weight: %{customdata:0.2f}
 
 if __name__ == "__main__":
     config = Config(
-        n_features=100,
-        n_hidden=20,
-        n_instances=20,
+        num_features=100,
+        num_neurons=20,
+        num_instances=20,
     )
 
     model = Model(
         config=config,
         device=DEVICE,
         # Exponential feature importance curve from 1 to 1/100
-        importance=(100 ** -t.linspace(0, 1, config.n_features))[None, :],
+        importance=(100 ** -t.linspace(0, 1, config.num_features))[None, :],
         # Sweep feature frequency across the instances from 1 (fully dense) to 1/20
-        feature_probability=(20 ** -t.linspace(0, 1, config.n_instances))[:, None],
+        feature_probability=(20 ** -t.linspace(0, 1, config.num_instances))[:, None],
     )
     optimize(model)
 
